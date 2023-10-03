@@ -1,0 +1,257 @@
+import torch
+from torch.nn import Parameter
+import torch.nn.functional as F
+from torch.nn import CrossEntropyLoss
+from torch_geometric.nn import SAGEConv
+from torch_geometric.nn.inits import glorot, zeros
+
+class GConvLSTM(torch.nn.Module):
+    r"""
+    Args:
+        in_channels (int): Number of input features.
+        out_channels (int): Number of output features.
+        bias (bool, optional): If set to :obj:`False`, the layer will not learn
+            an additive bias. (default: :obj:`True`)
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        bias: bool = True,
+    ):
+        super(GConvLSTM, self).__init__()
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.bias = bias
+        self._create_parameters_and_layers()
+        self._set_parameters()
+
+    def _create_input_gate_parameters_and_layers(self):
+        self.conv_x_i = torch.nn.ModuleList()
+        self.conv_x_i.append(SAGEConv(
+            in_channels=self.in_channels,
+            out_channels=self.out_channels,
+            normalize=True,
+            bias=self.bias,
+        ))
+        self.conv_h_i = torch.nn.ModuleList()
+        self.conv_h_i.append(SAGEConv(
+            in_channels=self.out_channels,
+            out_channels=self.out_channels,
+            normalize=True,
+            bias=self.bias,
+        ))
+        self.w_c_i = Parameter(torch.Tensor(1, self.out_channels))
+        self.b_i = Parameter(torch.Tensor(1, self.out_channels))
+
+    def _create_forget_gate_parameters_and_layers(self):
+        self.conv_x_f = torch.nn.ModuleList()
+        self.conv_x_f.append(SAGEConv(
+            in_channels=self.in_channels,
+            out_channels=self.out_channels,
+            normalize=True,
+            bias=self.bias,
+        ))
+        self.conv_h_f = torch.nn.ModuleList()
+        self.conv_h_f.append(SAGEConv(
+            in_channels=self.out_channels,
+            out_channels=self.out_channels,
+            normalize=True,
+            bias=self.bias,
+        ))
+
+        self.w_c_f = Parameter(torch.Tensor(1, self.out_channels))
+        self.b_f = Parameter(torch.Tensor(1, self.out_channels))
+
+    def _create_cell_state_parameters_and_layers(self):
+        self.conv_x_c = torch.nn.ModuleList()
+        self.conv_x_c.append(SAGEConv(
+            in_channels=self.in_channels,
+            out_channels=self.out_channels,
+            normalize=True,
+            bias=self.bias,
+        ))
+        self.conv_h_c = torch.nn.ModuleList()
+        self.conv_h_c.append(SAGEConv(
+            in_channels=self.out_channels,
+            out_channels=self.out_channels,
+            normalize=True,
+            bias=self.bias,
+        ))
+        self.b_c = Parameter(torch.Tensor(1, self.out_channels))
+
+    def _create_output_gate_parameters_and_layers(self):
+        self.conv_x_o = torch.nn.ModuleList()
+        self.conv_x_o.append(SAGEConv(
+            in_channels=self.in_channels,
+            out_channels=self.out_channels,
+            normalize=True,
+            bias=self.bias,
+        ))
+        self.conv_h_o = torch.nn.ModuleList()
+        self.conv_h_o.append(SAGEConv(
+            in_channels=self.out_channels,
+            out_channels=self.out_channels,
+            normalize=True,
+            bias=self.bias,
+        ))
+        self.w_c_o = Parameter(torch.Tensor(1, self.out_channels))
+        self.b_o = Parameter(torch.Tensor(1, self.out_channels))
+
+    def _create_parameters_and_layers(self):
+        self._create_input_gate_parameters_and_layers()
+        self._create_forget_gate_parameters_and_layers()
+        self._create_cell_state_parameters_and_layers()
+        self._create_output_gate_parameters_and_layers()
+
+    def _set_parameters(self):
+        glorot(self.w_c_i)
+        glorot(self.w_c_f)
+        glorot(self.w_c_o)
+        zeros(self.b_i)
+        zeros(self.b_f)
+        zeros(self.b_c)
+        zeros(self.b_o)
+
+    def _set_hidden_state(self, X, H):
+        if H is None:
+            H = torch.zeros(X.shape[0], self.out_channels).to(X.device)
+        return H
+
+    def _set_cell_state(self, X, C):
+        if C is None:
+            C = torch.zeros(X.shape[0], self.out_channels).to(X.device)
+        return C
+
+    def _calculate_input_gate(self, X, edge_index, H, C):
+        I = self.conv_x_i[0](X, edge_index)
+        I = I + self.conv_h_i[0](H, edge_index)
+        I = I + (self.w_c_i * C)
+        I = I + self.b_i
+        I = torch.sigmoid(I)
+        return I
+
+    def _calculate_forget_gate(self, X, edge_index, H, C):
+        F = self.conv_x_f[0](X, edge_index)
+        F = F + self.conv_h_f[0](H, edge_index)
+        F = F + (self.w_c_f * C)
+        F = F + self.b_f
+        F = torch.sigmoid(F)
+        return F
+
+    def _calculate_cell_state(self, X, edge_index, H, C, I, F):
+        T = self.conv_x_c[0](X, edge_index)
+        T = T + self.conv_h_c[0](H, edge_index)
+        T = T + self.b_c
+        T = torch.tanh(T)
+        C = F * C + I * T
+        return C
+
+    def _calculate_output_gate(self, X, edge_index, H, C):
+        O = self.conv_x_o[0](X, edge_index)
+        O = O + self.conv_h_o[0](H, edge_index)
+        O = O + (self.w_c_o * C)
+        O = O + self.b_o
+        O = torch.sigmoid(O)
+        return O
+
+    def _calculate_hidden_state(self, O, C):
+        H = O * torch.tanh(C)
+        return H
+
+    def forward(
+        self,
+        X: torch.FloatTensor,
+        edge_index: torch.LongTensor,
+        H: torch.FloatTensor = None,
+        C: torch.FloatTensor = None,
+    ) -> torch.FloatTensor:
+        """
+        Making a forward pass. If the hidden state and cell state
+        matrices are not present when the forward pass is called these are
+        initialized with zeros.
+
+        Arg types:
+            X(PyTorch Float Tensor): Node features.
+            edge_index(PyTorch Long Tensor): Graph edge indices.
+            edge_weight(PyTorch Long Tensor, optional): Edge weight vector.
+            H(PyTorch Float Tensor, optional): Hidden state matrix for all nodes.
+            C(PyTorch Float Tensor, optional): Cell state matrix for all nodes.
+
+        Return types:
+            H(PyTorch Float Tensor): Hidden state matrix for all nodes.
+            C(PyTorch Float Tensor): Cell state matrix for all nodes.
+        """
+        H = self._set_hidden_state(X, H)
+        C = self._set_cell_state(X, C)
+        I = self._calculate_input_gate(X, edge_index, H, C)
+        F = self._calculate_forget_gate(X, edge_index, H, C)
+        C = self._calculate_cell_state(X, edge_index, H, C, I, F)
+        O = self._calculate_output_gate(X, edge_index, H, C)
+        H = self._calculate_hidden_state(O, C)
+        return H, C
+
+class MLPModel(torch.nn.Module):
+    def __init__(
+            self, 
+            in_size=128, 
+            hidden_size=128, 
+            out_size=2
+        ):
+        super(MLPModel,self).__init__()
+
+        self.hidden_size = hidden_size
+        self.in_size = in_size
+
+        self.encoder1 = torch.nn.Linear(self.in_size, self.hidden_size)
+        self.encoder2 = torch.nn.Linear(self.hidden_size, self.hidden_size//2)
+        self.sigmoid = torch.nn.Sigmoid()
+
+        self.fc = torch.nn.Linear(self.hidden_size//2, self.hidden_size//4)
+        self.fc_out = torch.nn.Linear(hidden_size//4, out_size)
+        self.leaky_relu = torch.nn.LeakyReLU()
+
+    def forward(self, x):
+        hidden = self.encoder1(x)
+        hidden = self.leaky_relu(hidden)
+
+        hidden = self.encoder2(hidden)
+        hidden = self.leaky_relu(hidden)
+
+        hidden = self.fc(hidden)
+        hidden = self.leaky_relu(hidden)
+
+        return self.fc_out(hidden).squeeze()
+    
+class GCN_LSTM(torch.nn.Module):
+    def __init__(
+        self, 
+        in_channels=11, 
+        hidden_channels=128, 
+        num_classes=2, 
+        dropout=0.3, 
+        lr=1e-3, 
+        positive_rate=0.125
+    ):
+        super(GCN_LSTM, self).__init__()
+        self.recurrent = GConvLSTM(in_channels, hidden_channels)
+        self.dropout=dropout
+        self.MLP = MLPModel(in_size=hidden_channels, hidden_size=hidden_channels, out_size=num_classes)
+        self.optimizer =torch.optim.Adam([
+            dict(params=self.recurrent.parameters(), weight_decay=1e-2),
+            dict(params=self.MLP.parameters(), weight_decay=5e-4)
+        ], lr=lr)
+        weights = [1,(1-positive_rate)/positive_rate]
+        class_weights = torch.FloatTensor(weights)
+        self.criterion = CrossEntropyLoss(weight=class_weights)
+
+    def forward(self, x, edge_index, edge_weight, h=None, c=None, output=False):
+        x = F.dropout(x, self.dropout, training=self.training)
+        h, c = self.recurrent(x, edge_index,h,c)
+        h = F.relu(h)
+        if output == True:
+            h = F.dropout(h, self.dropout, training=self.training)
+            h = self.MLP(h)
+        return h, c
