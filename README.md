@@ -1,2 +1,2 @@
 # GraphSAGE-LSTM
-1.
+1.Quick strat
