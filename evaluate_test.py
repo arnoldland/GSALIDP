@@ -3,16 +3,14 @@ import numpy as np
 import os
 import torch
 from sklearn.preprocessing import StandardScaler
-from utils.site_dataset import IDPDataset
+from utils.IDPdataset import SiteDataset, PairDataset
 from utils.analysis import analysis
-from models.GCN_LSTM import GCN_LSTM
+from models.GraphSAGE_LSTM import GraphSAGE_LSTM
+from models.PairModel import PairModel
+import argparse 
 
 Dataset_Path = "./"
-Model_Path = "./models/site_models/"
 
-HIDDEN_CHANNELS = 128
-NUM_FEATURES = 11
-POSITIVE_RATE = 0.125 #hyperparameter
 SEED=42
 np.random.seed(SEED)
 torch.manual_seed(SEED)
@@ -22,15 +20,14 @@ if torch.cuda.is_available():
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 scaler = StandardScaler()
 
-
-def evaluate(model, data_loader):
+def evaluate(model, data_set):
     model.eval()
     epoch_loss = 0.0
     n = 0
     valid_pred = []
     valid_true = []
 
-    for _,data in enumerate(data_loader):
+    for _,data in enumerate(data_set):
         with torch.no_grad():
             h = None
             c = None
@@ -63,24 +60,17 @@ def evaluate(model, data_loader):
         epoch_loss_avg = epoch_loss / n
     return epoch_loss_avg, valid_true, valid_pred
 
-def test(test_set):
-    test_loader = test_set
-    #DataLoader(dataset=test_set, batch_size=BATCH_SIZE, shuffle=True, num_workers=2)
+def test(test_set, Model_Path):
     for model_name in sorted(os.listdir(Model_Path)):
         print(model_name)
-        model = GCN_LSTM(
-            in_channels=NUM_FEATURES,
-            hidden_channels=HIDDEN_CHANNELS,
-            num_classes=2,
-            positive_rate=POSITIVE_RATE
-            ).to(device)
+        model = GraphSAGE_LSTM().to(device)
         model.load_state_dict(torch.load(Model_Path + model_name, map_location=device))
 
-        epoch_loss_test_avg, test_true, test_pred = evaluate(model, test_loader)
+        epoch_loss_test_avg, test_true, test_pred = evaluate(model, test_set)
 
         result_test = analysis(test_true, test_pred)
 
-        print("========== Evaluate Test set ==========")
+        print("========== Evaluate on the Test set ==========")
         print("Test loss: ", epoch_loss_test_avg)
         print("Test binary acc: ", result_test['binary_acc'])
         print("Test precision:", result_test['precision'])
@@ -91,11 +81,31 @@ def test(test_set):
         print("Test mcc: ", result_test['mcc'])
         print("Threshold: ", result_test['threshold'])
 
-def main():
-    dataset = IDPDataset(Dataset_Path)
+def main(predict_type):
     test_list = [0,1,2,23,31]
-    test_set = dataset.index_select(test_list)
-    test(test_set)
+    
+    if predict_type == 'site':
+        dataset = SiteDataset(Dataset_Path)
+        test_set = dataset.index_select(test_list)
+        Model_Path = "./models/site_models/"
+        test(test_set, Model_Path = "./models/site_models/")
 
-if __name__ == "__main__":
-    main()
+    else:
+        if predict_type == 'pair':
+            dataset = PairDataset(Dataset_Path)
+            test_set = dataset.index_select(test_list)
+            Model_Path = "./models/pair_models/"
+            MODEL = PairModel(valid_data = test_set, device=device ,model_path= Model_Path)
+            MODEL.test(test_set)
+        
+        else:
+            print("Wrong prediction type!")
+            exit()
+
+
+if __name__ == "__main__" : 
+    parser = argparse.ArgumentParser(description='GraphSAGE-LSTM for site prediction')
+    parser.add_argument('--ptype', default='site', type=str, help='site or pair')
+
+    args = parser.parse_args()
+    main(args.ptype)

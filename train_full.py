@@ -3,20 +3,18 @@ import os
 import torch
 from tqdm import *
 from sklearn.preprocessing import StandardScaler
-from utils.site_dataset import IDPDataset
+from utils.IDPdataset import SiteDataset, PairDataset
 from utils.analysis import analysis
-from models.GCN_LSTM import GCN_LSTM
-#import torch_geometric.transforms as T
+from models.GraphSAGE_LSTM import GraphSAGE_LSTM
+from models.PairModel import PairModel
+import argparse 
 
-HIDDEN_CHANNELS = 128
-L_R=1e-3
-DROUPOUT=0.3
+
 NUMBER_EPOCHS = 50
-NUM_FEATURES = 11
-POSITIVE_RATE = 0.125 #hyperparameter
-#transform = T.Compose([T.NormalizeFeatures(), T.ToSparseTensor()])
+
 Dataset_Path = "./"
-Model_Path = "./models/site_models"
+
+
 SEED=42
 np.random.seed(SEED)
 torch.manual_seed(SEED)
@@ -26,14 +24,14 @@ if torch.cuda.is_available():
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 scaler = StandardScaler()
 
-def evaluate(model, data_loader):
+def evaluate(model, data_set):
     model.eval()
     epoch_loss = 0.0
     n = 0
     valid_pred = []
     valid_true = []
 
-    for _,data in enumerate(data_loader):
+    for _,data in enumerate(data_set):
         with torch.no_grad():
             h = None
             c = None
@@ -66,10 +64,10 @@ def evaluate(model, data_loader):
         epoch_loss_avg = epoch_loss / n
     return epoch_loss_avg, valid_true, valid_pred
 
-def train_one_epoch(model, data_loader):
+def train_one_epoch(model, train_set):
     epoch_loss_train = 0.0
     n = 0
-    for _, data in enumerate(data_loader):
+    for _, data in enumerate(train_set):
         h = None
         c = None
         for time, snapshot in enumerate(data):
@@ -99,26 +97,18 @@ def train_one_epoch(model, data_loader):
     epoch_loss_train_avg = epoch_loss_train / n
     return epoch_loss_train_avg
 
-def train_full_model(train_set, aver_epoch):
+def train_full_model(train_set, aver_epoch, model_path):
     print("\nTraining a full model using all training data...\n")
-    model = GCN_LSTM(
-        in_channels=NUM_FEATURES,
-        hidden_channels=HIDDEN_CHANNELS,
-        dropout=DROUPOUT,
-        num_classes=2,
-        positive_rate=POSITIVE_RATE
-        ).to(device)
-    
-    train_loader = train_set
+    model = GraphSAGE_LSTM().to(device)
     loss_list = []
     auc_list = []
     auprc_list = []
     for epoch in range(NUMBER_EPOCHS):
         print("\n========== Train epoch " + str(epoch + 1) + " ==========")
         model.train()
-        epoch_loss_train_avg = train_one_epoch(model, train_loader)
+        epoch_loss_train_avg = train_one_epoch(model, train_set)
         print("========== Evaluate Train set ==========")
-        _, train_true, train_pred = evaluate(model, train_loader)
+        _, train_true, train_pred = evaluate(model, train_set)
         result_train = analysis(train_true, train_pred, 0.5)
         print("Train loss: ", epoch_loss_train_avg)
         print("Train AUC: ", result_train['AUC'])
@@ -127,14 +117,33 @@ def train_full_model(train_set, aver_epoch):
         auc_list.append(result_train['AUC'])
         auprc_list.append(result_train['AUPRC'])
         if epoch + 1 in [aver_epoch]:
-            torch.save(model.state_dict(), os.path.join(Model_Path, 'Full_model_{}.pkl'.format(epoch + 1)))
+            torch.save(model.state_dict(), os.path.join(model_path, 'Full_model_{}.pkl'.format(epoch + 1)))
 
-def main():
+def main(train_type):
     test_list = [0,1,2,23,31]
-    train_list = [i for i in range(35) if i not in test_list]
-    dataset = IDPDataset(Dataset_Path)
-    train_set=dataset.index_select(train_list)
-    train_full_model(train_set,43)
+    train_list = [i for i in range(34) if i not in test_list]
+    if train_type == 'site':
+        Model_Path = "./models/site_models/"
+        dataset = SiteDataset(Dataset_Path)
+        train_set=dataset.index_select(train_list)
+        train_full_model(train_set, aver_epoch= 43, model_path=Model_Path)
 
-if __name__ == "__main__":
-    main()
+    else:
+        if train_type == 'pair':
+            Model_Path = "./models/pair_models/"
+            dataset = PairDataset(Dataset_Path)
+            train_set = dataset.index_select(train_list)
+            MODEL = PairModel(train_data = train_set, device=device ,model_path= Model_Path)
+            MODEL.train_full_model(aver_epoch = 19, num_epochs= NUMBER_EPOCHS)
+        
+        else:
+            print("Wrong prediction type!")
+            exit()
+
+
+if __name__ == "__main__" : 
+    parser = argparse.ArgumentParser(description='GraphSAGE-LSTM for full train')
+    parser.add_argument('--ttype', default='site', type=str, help='site or pair')
+
+    args = parser.parse_args()
+    main(args.ttype)

@@ -4,7 +4,7 @@ import pandas as pd
 import csv
 
 thresh = 1.0 #unit nm
-num_files = 35
+num_files = 34
 
 def main():
     for flag in ['A','B']:
@@ -35,8 +35,7 @@ def main():
                 rows = zip(row,col)
                 with open(filepath,"w",newline='') as f:
                     writer = csv.writer(f)
-                    for i in rows:
-                        writer.writerow(i)
+                    writer.writerows(rows)
     print("done!")
 
 if __name__ == '__main__':
