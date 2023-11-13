@@ -18,7 +18,7 @@ disordered proteins</h4>
 </p>
 
 ## Introduction
-![GSALIDP](https://github.com/arnoldland/GSALIDP\images\GSALIDP.png "GSALIDP")
+![GSALIDP](https://raw.githubusercontent.com/arnoldland/GSALIDP/main/images/GSALIDP.png "GSALIDP")
 
 
 We present GSALIDP, a GraphSAGE LSTM Network for predicting the behavior of IDP interaction. GSALIDP integrates the graph sample and aggregate (GraphSAGE) network with the long short-term memory (LSTM) network. LSTM serves as the main framework of the model, and GraphSAGE is embedded within LSTM to extract the structural information of IDPs. The training data for GSALIDP is obtained from atomistic molecular dynamics (MD) simulations. Multiple conformations of IDP is modeled as a dynamic graph to describe the fluctuation of its flexible conformation. 
