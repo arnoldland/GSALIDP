@@ -18,9 +18,14 @@ disordered proteins</h4>
 </p>
 
 ## Introduction
+![GSALIDP](https://github.com/arnoldland/GSALIDP\images\GSALIDP.png "GSALIDP")
 
-We present GSALIDP, a GraphSAGE LSTM Network for predicting the behavior of IDP interactionGSALIDP can effectively predict the interaction sites of IDP as well as the contact residue pairs between IDPs. Its performance to predict IDP interaction is on par with or even better than the conventional models to predict the interaction of structural proteins. To the best of our knowledge, this is the first machine-learning method to realize the prediction of 
-interaction behavior of IDPs. 
+
+We present GSALIDP, a GraphSAGE LSTM Network for predicting the behavior of IDP interaction. GSALIDP integrates the graph sample and aggregate (GraphSAGE) network with the long short-term memory (LSTM) network. LSTM serves as the main framework of the model, and GraphSAGE is embedded within LSTM to extract the structural information of IDPs. The training data for GSALIDP is obtained from atomistic molecular dynamics (MD) simulations. Multiple conformations of IDP is modeled as a dynamic graph to describe the fluctuation of its flexible conformation. 
+
+GSALIDP can effectively predict the interaction sites of IDP as well as the contact residue pairs between IDPs. Its performance to predict IDP interaction is on par with or even better than the conventional models to predict the interaction of structural proteins. To the best of our knowledge, this is the first machine-learning method to realize the prediction of 
+interaction behavior of IDPs.
+
 
 ## Requirements
 
@@ -75,6 +80,17 @@ $ python evaluate_test.py --ptype pair
 ```
 
 ### Train a new model
+#### Cross-Validation
+* Cross-Validation on the train set to choose the best epoche.
+
+```bash
+# for site cross-validation. Best model of each fold will be stored in the ./models/site_models folder
+$ python train_full.py --cvtype site
+# for pair cross-validation. Best model of each fold will be stored in the ./models/pair_models folder
+$ python train_full.py --cvtype pair
+```
+
+#### Train a full model
 * After getting the best epoch of the Cross-Validation, you can train a new model on the full train set. 
 ```bash
 # for site train
@@ -83,14 +99,7 @@ $ python train_full.py --ttype site
 $ python train_full.py --ttype pair
 ```
 
-### Cross-Validation on the train set to choose the best epoche
-* Cross-Validation on the train set.
-```bash
-# for site cross-validation. Best model of each fold will be stored in the ./models/site_models folder
-$ python train_full.py --cvtype site
-# for pair cross-validation. Best model of each fold will be stored in the ./models/pair_models folder
-$ python train_full.py --cvtype pair
-```
+
 
 ## License
 
